@@ -1,33 +1,37 @@
-version: "3.8"
+version: "3.9"
 
 services:
-  mysql:
-    image: mysql:8
-    container_name: bookmyshow-mysql
-    restart: always
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-    volumes:
-      - mysql_data:/var/lib/mysql
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   app:
-    image: bookmyshowacr1.azurecr.io/bookmyshow:${IMAGE_TAG}
-    container_name: bookmyshow-app
-    restart: always
-    depends_on:
-      mysql:
-        condition: service_healthy
+    build: .
+    container_name: bookmyshow_app
     ports:
       - "3000:3000"
     env_file:
       - .env
+    depends_on:
+      - db
+    restart: always
+    networks:
+      - bookmyshow_net
+
+  db:
+    image: mysql:8.0
+    container_name: bookmyshow_db
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: bookmyshow_db
+      MYSQL_USER: bookmyshow_user
+      MYSQL_PASSWORD: bookmyshow_pass
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    restart: always
+    networks:
+      - bookmyshow_net
+
+networks:
+  bookmyshow_net:
+    driver: bridge
 
 volumes:
   mysql_data:
