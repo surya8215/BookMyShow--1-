@@ -1,0 +1,73 @@
+trigger:
+- main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  imageName: bookmyshow
+  acrLoginServer: bookmyshowacr1.azurecr.io
+  resourceGroup: bookmyshow-rg
+  vmName: bookmyshow-vm
+  IMAGE_TAG: $(Build.BuildId)
+
+steps:
+# -----------------------------
+# Checkout source
+# -----------------------------
+- checkout: self
+
+# -----------------------------
+# Build & Push Docker Image
+# -----------------------------
+- task: Docker@2
+  displayName: Build and Push Docker Image
+  inputs:
+    command: buildAndPush
+    containerRegistry: acr-docker-connection
+    repository: $(imageName)
+    dockerfile: Dockerfile
+    tags: |
+      $(IMAGE_TAG)
+
+# -----------------------------
+# Deploy to VM (Run Command)
+# -----------------------------
+- task: AzureCLI@2
+  displayName: Deploy containers on VM
+  inputs:
+    azureSubscription: acr-connection
+    scriptType: bash
+    scriptLocation: inlineScript
+    inlineScript: |
+      echo "Deploying IMAGE_TAG=$(IMAGE_TAG)"
+      echo "Using ACR=$(acrLoginServer)"
+
+      az vm run-command invoke \
+        --resource-group $(resourceGroup) \
+        --name $(vmName) \
+        --command-id RunShellScript \
+        --scripts "
+          set -e
+
+          export IMAGE_TAG=$(IMAGE_TAG)
+          export ACR_LOGIN_SERVER=$(acrLoginServer)
+          export COMPOSE_HTTP_TIMEOUT=300
+          export DOCKER_CLIENT_TIMEOUT=300
+
+          mkdir -p /home/azureuser/bookmyshow
+          cd /home/azureuser/bookmyshow || exit 1
+
+          echo MYSQL_ROOT_PASSWORD=rootpassword > .env
+          echo MYSQL_DATABASE=bookmyshow >> .env
+          echo IMAGE_TAG=\$IMAGE_TAG >> .env
+          echo ACR_LOGIN_SERVER=\$ACR_LOGIN_SERVER >> .env
+
+          echo '--- ENV FILE ---'
+          cat .env
+          echo '----------------'
+
+          docker-compose down --remove-orphans || true
+          docker-compose pull
+          docker-compose up -d --force-recreate --pull always
+        "
